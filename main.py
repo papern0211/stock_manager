@@ -85,6 +85,10 @@ class FileBox(MDBoxLayout):
                                                     "평단_y": "매도평단"}, inplace=True)
         transaction_group_buy_sell.drop(columns=['거래유형_x', '거래유형_y'], inplace=True)
 
+        # 손익 분기점 계산
+        transaction_group_buy_sell['이득평단'] = transaction_group_buy_sell['매수가능금액'] / (transaction_group_buy_sell['기준수량'] - transaction_group_buy_sell['현재보유량'])
+
+    
         # total_buy_available = budget["예산"].sum() - transaction_group_buy_sell['현재매수금액'].sum()
         # total_over_budget =  transaction_group_buy_sell.loc[transaction_group_buy_sell["매수가능금액"] < 0, "매수가능금액"].sum()
         # print(f"total_buy_available: {total_buy_available:.2f}")
