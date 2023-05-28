@@ -7,7 +7,10 @@ from kivymd.uix.datatables import MDDataTable
 from kivy.metrics import dp
 from kivy.lang import Builder
 from kivymd.uix.bottomnavigation import MDBottomNavigation, MDBottomNavigationItem
+from kivymd.toast import toast
 
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
 
 KOREAN_FONT = "./font/NanumGothic.ttf"
@@ -15,10 +18,25 @@ BUDGET_FILE = "./DB/budget.csv"
 TRANSACTION_FILE = "./DB/transaction.csv"
 STATUS_FILE = "./DB/status.csv"
 
+
+def get_gspread(sheet_name: str):
+    gc = gspread.service_account(filename='./credentials.json')
+    return gc.open(sheet_name)
+
+def update_csv_to_google_sheet(spread,
+                               sheet_name: str,
+                               df: pd.DataFrame):
+
+    sheet = spread.worksheet(sheet_name)
+    sheet.clear()
+    sheet.update([df.columns.values.tolist()] + df.values.tolist())
+
+
 class FileBox(MDBoxLayout):
-    def __init__(self, **kwargs):
+    def __init__(self, spread, **kwargs):
         super().__init__(**kwargs)
         self.orientation = "vertical"
+        self._spread = spread
 
         self.file_chooser = FileChooserListView(path='./DB', size_hint=(1, 0.5))
         self.file_chooser.bind(on_touch_down=self.load_csv)
@@ -33,6 +51,12 @@ class FileBox(MDBoxLayout):
         run_button.bind(on_press=self.save_csv)
         self.add_widget(run_button)
 
+        # Create a button to update table to Google Spread
+        run_button_spread = MDRaisedButton(text='Update to Google Spread', size_hint=(1, 0.1))
+        run_button_spread.bind(on_press=self.update_gspread)
+        self.add_widget(run_button_spread)
+
+        
     def load_csv(self, instance, touch):
         # Get the file path from the TextInput widget
         if touch.is_double_tap and self.file_chooser.collide_point(*touch.pos):
@@ -96,6 +120,25 @@ class FileBox(MDBoxLayout):
         transaction_group_buy_sell = transaction_group_buy_sell.applymap(format_float)
         transaction_group_buy_sell.to_csv(STATUS_FILE)
 
+    def update_gspread(self, instance):
+        sheets_dict = {'status': STATUS_FILE,
+                       'transaction': TRANSACTION_FILE,
+                       'budget': BUDGET_FILE}
+        
+        for key, value in sheets_dict.items():
+            df = pd.read_csv(value)
+            if key=='transaction':
+                df.fillna({'금액': (df['단가'] * df['수량']).round(2)}, inplace=True)
+            else:
+                df=df.fillna("")
+            update_csv_to_google_sheet(spread=self._spread,
+                                        sheet_name=key,
+                                        df=df)
+            
+        toast('Done!')
+
+
+
 class StatusBox(MDBoxLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -113,8 +156,6 @@ class StatusBox(MDBoxLayout):
         refresh_button = MDRaisedButton(text='Refresh', size_hint=(1, 0.1))
         refresh_button.bind(on_press=self.on_click_refresh)
         self.add_widget(refresh_button)
-
-
 
     def gen_column_data(self):
         header = pd.read_csv(self.filepath , nrows=0).columns.tolist()
@@ -137,6 +178,7 @@ class StatusBox(MDBoxLayout):
 
     def on_click_refresh(self, instance):
         self.display_status()
+        toast('Done!')
         
 
 class BudgetBox(MDBoxLayout):
@@ -166,7 +208,7 @@ class BudgetBox(MDBoxLayout):
         return column_data
     
     def gen_row_data(self):
-        df = pd.read_csv(self.filepath )
+        df = pd.read_csv(self.filepath)
         def change_font(x):
             return f'[font={KOREAN_FONT}]{x}[/font]'
         df['종목'] = df['종목'].apply(change_font)
@@ -179,6 +221,7 @@ class BudgetBox(MDBoxLayout):
         
     def on_click_refresh(self, instance):
         self.display_status()
+        toast('Done!')
 
         
 class TransactionBox(MDBoxLayout):
@@ -223,14 +266,15 @@ class TransactionBox(MDBoxLayout):
     
     def on_click_refresh(self, instance):
         self.display_status()
+        toast('Done!')
 
 class FilesItem(MDBottomNavigationItem):
-    def __init__(self, **kwargs):
+    def __init__(self, spread, **kwargs):
         super().__init__(**kwargs)
         self.theme_cls.material_style = "M3"
         self.theme_cls.theme_style = "Dark"
         self.orientation = "vertical"
-        self.filebox = FileBox()
+        self.filebox = FileBox(spread=spread)
         self.add_widget(self.filebox)
   
 
@@ -276,8 +320,10 @@ class StockApp(MDApp):
         self.theme_cls.material_style = "M3"
         self.theme_cls.theme_style = "Dark"
 
+        spread = get_gspread("미국주식_최신")
+
         root = MDBottomNavigation()
-        self.navigation_item4 = FilesItem(name='files', text='files')
+        self.navigation_item4 = FilesItem(spread=spread, name='files', text='files')
         self.navigation_item4.filebox.calculate()  
         self.navigation_item1 = StatusItem(name='status', text='status')
         self.navigation_item2 = BudgetItem(name='budget', text='budget')
